@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>
+<title>짬짬이 용사</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap">
+<style>
+/* layout: 한 화면 게임기 — 상단 상태줄, 가운데 픽셀 화면, 하단 조작판 */
+:root{--bg:#1b1d2b;--panel:#272a3d;--ink:#f2ecd8;--dim:#9a96a8;--hp:#e0525a;--xp:#f2c14e;--btn:#3a3f5c;--font:"DotGothic16","Courier New",monospace;color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);display:flex;justify-content:center;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px;box-sizing:border-box;user-select:none;-webkit-user-select:none}
+#app{width:100%;max-width:420px;display:flex;flex-direction:column;gap:10px}
+.bar{display:flex;gap:10px;align-items:center;font-size:14px}
+.gauge{flex:1;height:10px;background:var(--panel);border:2px solid #000;position:relative}
+.gauge i{position:absolute;inset:0;width:0;display:block}
+#hpb i{background:var(--hp)}#xpb i{background:var(--xp)}
+canvas{width:100%;aspect-ratio:1;image-rendering:pixelated;border:3px solid #000;background:#000;display:block;max-width:100%}
+#log{background:var(--panel);border:3px solid #000;padding:8px 10px;min-height:58px;font-size:15px;line-height:1.5}
+#pad{display:grid;grid-template-columns:repeat(3,64px);grid-template-rows:repeat(3,52px);gap:6px;justify-content:center}
+#acts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+button{font-family:var(--font);font-size:17px;color:var(--ink);background:var(--btn);border:3px solid #000;box-shadow:inset -3px -3px 0 #0006;cursor:pointer;touch-action:manipulation}
+button:active{box-shadow:inset 3px 3px 0 #0006}
+button:focus-visible{outline:3px solid var(--xp)}
+#acts button{padding:12px 0}
+small{color:var(--dim)}
+</style>
+
+<div id="app">
+  <div class="bar"><b id="lv">Lv1</b><span>HP</span><div class="gauge" id="hpb"><i></i></div><span id="hpt" style="min-width:52px;font-variant-numeric:tabular-nums"></span></div>
+  <div class="bar"><span>EXP</span><div class="gauge" id="xpb"><i></i></div><span id="gold" style="min-width:52px">0G</span></div>
+  <canvas id="c" width="160" height="160"></canvas>
+  <div id="log"></div>
+  <div id="pad">
+    <span></span><button id="bu" aria-label="위">▲</button><span></span>
+    <button id="bl" aria-label="왼쪽">◀</button><span></span><button id="br" aria-label="오른쪽">▶</button>
+    <span></span><button id="bd" aria-label="아래">▼</button><span></span>
+  </div>
+  <div id="acts" hidden>
+    <button id="atk">공격</button><button id="heal">회복약</button><button id="run">도망</button>
+  </div>
+  <small>방향키·WASD로도 이동합니다. 진행 상황은 이 기기에 자동 저장됩니다.</small>
+</div>
+
+<script>
+const T=16,cv=document.getElementById('c'),g=cv.getContext('2d');g.imageSmoothingEnabled=false;
+// 맵: . 풀 , 숲(조우) ~ 물 # 나무 H 마을(회복) B 보스
+const MAP=[
+"##########",
+"#H..,,,~~#",
+"#..,,,,~~#",
+"#.,,#,,,,#",
+"#,,,#,,,,#",
+"#,,,,,~~,#",
+"#,#,,,~~,#",
+"#,,,,,,,,#",
+"#,,,,#,,B#",
+"##########"];
+const PAL={k:'#000',w:'#f2ecd8',s:'#f0b48a',r:'#c8403f',b:'#3f6bc8',y:'#f2c14e',g:'#4fae5a',G:'#2f7a3c',d:'#6b4a2f',p:'#9b59d0',e:'#5a5f78',u:'#3b8fd9',U:'#2a66a8'};
+function spr(rows){return rows}
+const S={
+hero:["....kkkk....","...kyyyyk...","..kyyyyyyk..","..kssssssk..","..ksksskk...","..kssssssk..","...kbbbbk...","..kbbwwbbk..","..kbbbbbbk..","...kbkkbk...","...kdk.kdk..","....k...k..."],
+slime:["............","............","....kkkk....","...kggggk...","..kggwgwgk..","..kggkgkgk..","..kgggggggk.",".kggggggggk.",".kgGGGGGGGk.","..kkkkkkkk..","............","............"],
+bat:["............","k..........k","kk...kk...kk","kpk.kppk.kpk","kppkpwpwkppk",".kppppppppk.","..kpprrppk..","...kppppk...","....kkkk....","............","............","............"],
+golem:["...kkkkkk...","..keeeeeek..","..kerkkrek..","..keeeeeek..",".kkeeeeeekk.","keekeeeekeek","keekeeeekeek","kk.keeeek.kk","...keeeek...","..keek.keek.","..keek.keek.","..kkk..kkk.."],
+dragon:["..k.....k...",".krk...krk..",".krrkkkkrrk.","krrrrrrrrrrk","krwkrrrrkwrk","krrrrrrrrrrk",".krryyyyrrk.","..kryyyyrk..","kkrrrrrrrrkk","krrkrrrrkrrk",".kk.krrk.kk.","....kkkk...."]};
+function draw(sp,x,y,sc=1,flash){const n=sp.length,u=T/12*sc;for(let j=0;j<n;j++)for(let i=0;i<12;i++){const c=sp[j][i];if(c&&c!='.'){g.fillStyle=flash?'#fff':PAL[c];g.fillRect(x+i*u,y+j*u,Math.ceil(u),Math.ceil(u))}}}
+function tile(ch,x,y,t){const X=x*T,Y=y*T;
+ g.fillStyle='#5aa846';g.fillRect(X,Y,T,T);
+ if(ch=='.'){g.fillStyle='#6cbc54';g.fillRect(X+3,Y+4,2,2);g.fillRect(X+11,Y+10,2,2)}
+ if(ch==','){g.fillStyle='#3f8a3a';g.fillRect(X,Y,T,T);g.fillStyle='#2f6e2c';for(let k=0;k<3;k++)g.fillRect(X+2+k*5,Y+6+(k%2)*4,2,5)}
+ if(ch=='~'){g.fillStyle='#2a66a8';g.fillRect(X,Y,T,T);g.fillStyle='#5fa6e8';g.fillRect(X+((t>>3)%2?2:6),Y+5,5,1);g.fillRect(X+((t>>3)%2?8:4),Y+11,5,1)}
+ if(ch=='#'){g.fillStyle='#2f7a3c';g.fillRect(X+2,Y+1,12,10);g.fillStyle='#235c2d';g.fillRect(X+4,Y+3,3,3);g.fillStyle='#6b4a2f';g.fillRect(X+6,Y+11,4,5)}
+ if(ch=='H'){g.fillStyle='#c8403f';g.fillRect(X+1,Y+2,14,5);g.fillStyle='#e8dcc0';g.fillRect(X+3,Y+7,10,8);g.fillStyle='#6b4a2f';g.fillRect(X+7,Y+10,3,5)}
+ if(ch=='B'&&!st.boss){draw(S.dragon,X,Y)}
+}
+const ENEMY={slime:{n:'슬라임',hp:8,atk:3,xp:4,g:3},bat:{n:'박쥐',hp:12,atk:5,xp:7,g:5},golem:{n:'돌골렘',hp:24,atk:8,xp:15,g:12},dragon:{n:'붉은 용',hp:70,atk:13,xp:100,g:100}};
+let st={x:1,y:2,lv:1,hp:20,mhp:20,atk:5,xp:0,nx:10,gold:0,pot:2,boss:false};
+try{const s=JSON.parse(localStorage.getItem('jjrpg'));if(s)st=Object.assign(st,s)}catch(e){}
+function save(){try{localStorage.setItem('jjrpg',JSON.stringify(st))}catch(e){}}
+let mode='map',foe=null,fl=0,tick=0;
+const $=id=>document.getElementById(id);
+function log(t){$('log').innerHTML=t}
+function ui(){$('lv').textContent='Lv'+st.lv;$('hpt').textContent=st.hp+'/'+st.mhp;$('hpb').firstChild.style.width=st.hp/st.mhp*100+'%';$('xpb').firstChild.style.width=st.xp/st.nx*100+'%';$('gold').textContent=st.gold+'G';$('heal').textContent='회복약 '+st.pot;$('pad').hidden=mode!='map';$('acts').hidden=mode!='battle'}
+function render(){tick++;
+ if(mode=='map'){for(let y=0;y<10;y++)for(let x=0;x<10;x++)tile(MAP[y][x],x,y,tick);draw(S.hero,st.x*T,st.y*T)}
+ else{g.fillStyle='#14162a';g.fillRect(0,0,160,160);g.fillStyle='#2b2f4a';g.fillRect(0,110,160,50);
+  if(foe&&foe.hp>0)draw(S[foe.k],32+(fl>0?(tick%2?3:-3):0),20,8,fl>0&&tick%4<2);
+  g.fillStyle='#f2ecd8';g.font='10px DotGothic16, monospace';if(foe)g.fillText(foe.n+' HP '+Math.max(0,foe.hp),8,150)}
+ if(fl>0)fl--;requestAnimationFrame(render)}
+function move(dx,dy){if(mode!='map')return;const nx=st.x+dx,ny=st.y+dy,ch=MAP[ny][nx];
+ if(ch=='#'||ch=='~')return;st.x=nx;st.y=ny;
+ if(ch=='H'){st.hp=st.mhp;if(st.gold>=10&&st.pot<5){st.gold-=10;st.pot++;log('마을에서 쉬었습니다. HP가 모두 찼고, 10G로 회복약을 샀습니다.')}else log('마을에서 쉬었습니다. HP가 모두 찼습니다.')}
+ else if(ch=='B'&&!st.boss)fight('dragon');
+ else if(ch==','&&Math.random()<.22){const d=nx+ny,pool=d<7?['slime','slime','bat']:d<11?['bat','slime','golem']:['golem','bat','golem'];fight(pool[Math.random()*3|0])}
+ else log(ch==','?'수풀을 헤치며 나아갑니다…':'평화로운 들판입니다.');
+ save();ui()}
+function fight(k){const e=ENEMY[k],sc=k=='dragon'?1:1+(st.lv-1)*.15;foe={k,n:e.n,hp:Math.round(e.hp*sc),atk:Math.round(e.atk*sc),xp:e.xp,g:e.g};mode='battle';log(foe.n+'이(가) 나타났습니다!');ui()}
+function enemyTurn(msg){const d=Math.max(1,foe.atk+(Math.random()*3|0)-1);st.hp-=d;msg+='<br>'+foe.n+'의 공격! '+d+' 피해.';
+ if(st.hp<=0){st.hp=st.mhp;st.x=1;st.y=1;st.gold=Math.floor(st.gold/2);mode='map';msg+='<br>쓰러졌습니다… 마을에서 깨어났습니다. (골드 절반 분실)'}log(msg);save();ui()}
+function attack(){if(mode!='battle')return;const crit=Math.random()<.15,d=Math.round((st.atk+(Math.random()*3|0))*(crit?2:1));foe.hp-=d;fl=12;
+ let m=(crit?'치명타! ':'')+foe.n+'에게 '+d+' 피해.';
+ if(foe.hp<=0){st.xp+=foe.xp;st.gold+=foe.g;m+='<br>'+foe.n+'을(를) 물리쳤습니다! EXP +'+foe.xp+', '+foe.g+'G';
+  if(foe.k=='dragon'){st.boss=true;m+='<br>🏆 용을 쓰러뜨렸습니다! 이 세계에 평화가 왔습니다.'}
+  while(st.xp>=st.nx){st.xp-=st.nx;st.lv++;st.nx=Math.round(st.nx*1.5);st.mhp+=6;st.atk+=2;st.hp=st.mhp;m+='<br>레벨 업! Lv'+st.lv}
+  setTimeout(()=>{mode='map';foe=null;ui()},700);log(m);save();ui();return}
+ enemyTurn(m)}
+function heal(){if(mode!='battle')return;if(st.pot<1){log('회복약이 없습니다. 마을에서 10G에 살 수 있습니다.');return}st.pot--;const h=Math.min(st.mhp-st.hp,15);st.hp+=h;enemyTurn('회복약을 마셨습니다. HP +'+h)}
+function run(){if(mode!='battle')return;if(foe.k!='dragon'&&Math.random()<.6){mode='map';foe=null;log('무사히 도망쳤습니다.');ui()}else enemyTurn('도망치지 못했습니다!')}
+const btn=(id,f)=>$(id).addEventListener('click',f);
+btn('bu',()=>move(0,-1));btn('bd',()=>move(0,1));btn('bl',()=>move(-1,0));btn('br',()=>move(1,0));btn('atk',attack);btn('heal',heal);btn('run',run);
+addEventListener('keydown',e=>{const k=e.key.toLowerCase(),m={arrowup:[0,-1],w:[0,-1],arrowdown:[0,1],s:[0,1],arrowleft:[-1,0],a:[-1,0],arrowright:[1,0],d:[1,0]}[k];if(m){e.preventDefault();move(...m)}if(k=='1'||k==' ')attack();if(k=='2')heal();if(k=='3')run()});
+log(st.boss?'평화로운 세계입니다. 계속 사냥하며 레벨을 올릴 수 있습니다.':'오른쪽 아래의 붉은 용을 쓰러뜨리세요! 숲에서 몬스터를 만나 실력을 키우고, 왼쪽 위 마을에서 쉬어 갈 수 있습니다.');
+ui();render();
+</script>
+
+</body></html>
