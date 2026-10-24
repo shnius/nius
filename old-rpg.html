@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>짬짬이 용사</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap">
+<style>
+/* 레이아웃: 한 화면 휴대용 게임기 — 위 전투/여행 화면, 아래 상태창·기록창(16비트 JRPG 파란 창) */
+:root{
+  --bg:#0c0e1c; --win-top:#3448c0; --win-bot:#141c64; --edge:#e8ecff; --ink:#ffffff;
+  --dim:#aab4e8; --hp:#5ee07a; --hp-low:#f05a5a; --xp:#f8d040; --gold:#f8d040;
+  --font:"DotGothic16","Courier New",monospace; color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);
+  padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));
+  padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(10px,env(safe-area-inset-bottom,0px));
+  display:flex;justify-content:center;-webkit-user-select:none;user-select:none}
+#app{width:100%;max-width:480px;display:flex;flex-direction:column;gap:8px;position:relative}
+.win{background:linear-gradient(180deg,var(--win-top),var(--win-bot));border:3px solid var(--edge);border-radius:6px;
+  box-shadow:0 0 0 2px #000,inset 0 0 0 1px #0006;padding:8px 12px;text-shadow:1px 1px 0 #000}
+#screen{position:relative;border:3px solid var(--edge);border-radius:6px;box-shadow:0 0 0 2px #000;overflow:hidden;background:#000}
+canvas{display:block;width:100%;aspect-ratio:192/116;image-rendering:pixelated;max-width:100%}
+#area{position:absolute;left:8px;top:6px;font-size:13px;text-shadow:1px 1px 0 #000,-1px 0 0 #000}
+#clock{position:absolute;right:8px;top:6px;font-size:13px;text-shadow:1px 1px 0 #000;font-variant-numeric:tabular-nums}
+#status{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:15px}
+#status .full{grid-column:1/-1;display:flex;justify-content:space-between;align-items:baseline}
+.row{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
+.lbl{color:var(--dim)}
+.gauge{height:7px;background:#000a;border:1px solid #000;margin-top:2px}
+.gauge i{display:block;height:100%;width:0;transition:width .3s}
+#hpg i{background:var(--hp)} #xpg i{background:var(--xp)}
+#log{font-size:14px;line-height:1.55;min-height:96px}
+#log div{opacity:.55} #log div:last-child{opacity:1}
+#log div:nth-last-child(2){opacity:.8}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:10px;background:#000a;z-index:5}
+.overlay .win{width:100%;max-width:420px}
+h1{font-size:26px;margin:4px 0 2px;letter-spacing:2px;text-align:center}
+h2{font-size:18px;margin:0 0 8px}
+p{margin:6px 0;line-height:1.6}
+.choices{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+button{font-family:var(--font);font-size:16px;color:var(--ink);background:transparent;border:0;text-align:left;
+  padding:6px 4px 6px 24px;position:relative;cursor:pointer;text-shadow:1px 1px 0 #000;border-radius:3px}
+button::before{content:"▶";position:absolute;left:4px;opacity:0;color:var(--edge)}
+button:hover::before,button:focus-visible::before{opacity:1;animation:blink .6s steps(2) infinite}
+button:focus-visible{outline:none;background:#fff1}
+button:disabled{color:#7a84b8;cursor:default}
+button:disabled::before{opacity:0!important}
+button .sub{display:block;font-size:12px;color:var(--dim)}
+@keyframes blink{50%{opacity:0}}
+input{font-family:var(--font);font-size:17px;width:100%;padding:6px 8px;background:#0008;color:var(--ink);border:2px solid var(--edge);border-radius:3px}
+.classes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.classes button{border:2px solid #fff4;padding:8px 8px 8px 24px}
+.classes button[aria-pressed="true"]{border-color:var(--xp);background:#fff1}
+.timer{font-size:12px;color:var(--dim);margin-top:6px;text-align:right}
+#bottom{display:flex;justify-content:space-between;font-size:12px;color:#7a84b8}
+#bottom button{font-size:12px;padding:2px 0 2px 16px;color:#7a84b8}
+@media (prefers-reduced-motion:reduce){button::before{animation:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="screen">
+    <canvas id="c" width="192" height="116"></canvas>
+    <div id="area"></div><div id="clock"></div>
+  </div>
+  <div class="win" id="status">
+    <div class="full"><b id="sName"></b><span><span class="lbl" id="sCls"></span> <b id="sLv"></b></span></div>
+    <div><div class="row"><span class="lbl">HP</span><span id="sHp"></span></div><div class="gauge" id="hpg"><i></i></div></div>
+    <div><div class="row"><span class="lbl">EXP</span><span id="sXp"></span></div><div class="gauge" id="xpg"><i></i></div></div>
+    <div class="row"><span class="lbl">공격</span><span id="sAtk"></span></div>
+    <div class="row"><span class="lbl">방어</span><span id="sDef"></span></div>
+    <div class="row"><span class="lbl">골드</span><span id="sGold" style="color:var(--gold)"></span></div>
+    <div class="row"><span class="lbl">회복약</span><span id="sPot"></span></div>
+  </div>
+  <div class="win" id="log"></div>
+  <div id="bottom"><span>창을 열어두면 모험가가 알아서 움직입니다.</span><button id="reset">처음부터</button></div>
+
+  <div class="overlay" id="startOv" hidden>
+    <div class="win">
+      <h1>짬짬이 용사</h1>
+      <p style="text-align:center;color:var(--dim);font-size:13px">모험가는 알아서 여행합니다. 당신은 가끔 운명을 고르기만 하면 됩니다.</p>
+      <label for="nameIn" class="lbl" style="font-size:13px">모험가 이름</label>
+      <input id="nameIn" maxlength="8" value="용사" autocomplete="off">
+      <div class="classes">
+        <button id="pickW" aria-pressed="true">전사<span class="sub">체력·방어가 높음<br>3턴마다 강타</span></button>
+        <button id="pickM" aria-pressed="false">마법사<span class="sub">공격이 강하나 약함<br>파이어볼·힐</span></button>
+      </div>
+      <div class="choices"><button id="startBtn">모험을 떠난다</button></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="evOv" hidden>
+    <div class="win">
+      <h2 id="evTitle"></h2>
+      <p id="evText"></p>
+      <div class="choices" id="evChoices"></div>
+      <div class="timer" id="evTimer"></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="endOv" hidden>
+    <div class="win">
+      <h1>THE END</h1>
+      <p id="endText" style="text-align:center"></p>
+      <div class="choices"><button id="contBtn">계속 모험한다</button><button id="newBtn">새 모험가로 시작</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const cv=$('c'),g=cv.getContext('2d');g.imageSmoothingEnabled=false;
+const W=192,H=116,GROUND=90;
+
+/* ---------- 도트 (단색으로 그리고, 외곽선·명암은 코드가 자동으로 입힘) ---------- */
+const PAL={k:'#1a1420',w:'#f4f0e0',y:'#f8d040',r:'#e03030',S:'#b8c2d4',s:'#f0c098',h:'#6a4020',R:'#b8303c',
+  b:'#7a5030',d:'#4a3020',U:'#3456c8',G:'#3cb44a',H:'#23793a',P:'#7a44b8',D:'#4a2468',E:'#8a8478',m:'#5a8a3a',
+  g:'#8890a0',L:'#c8ccd4',o:'#f08a30'};
+const NOSHADE='kwyr';
+// m:true = 왼쪽 절반만 그리고 좌우대칭으로 완성
+const SPRDEF={
+warrior:[[
+"................",
+".....SSSSS......",
+"....SSSSSSS.....",
+"....SSyyyySS....",
+"....SSSSSSSS....",
+"....hSssssSS....",
+"....hsskskss....",
+"....hsssssss....",
+".....ssssss....w",
+"...RRSSSSSSR..w.",
+"..RRSSSSSSSSRw..",
+"..RRSSSySSSSsy..",
+"..RRSSSySSSSs...",
+"..RRSSSSSSSS....",
+"..RRRddyddddR...",
+"..RRRSSSSSSSR...",
+"...RRSSSSSSR....",
+"....SSS..SSS....",
+"....SSS..SSS....",
+"....SSS..SSS....",
+"....bbb..bbb....",
+"...bbbb..bbbb...",
+"................"],[
+"................",
+".....SSSSS......",
+"....SSSSSSS.....",
+"....SSyyyySS....",
+"....SSSSSSSS....",
+"....hSssssSS....",
+"....hsskskss....",
+"....hsssssss....",
+".....ssssss....w",
+"...RRSSSSSSR..w.",
+"..RRSSSSSSSSRw..",
+"..RRSSSySSSSsy..",
+"..RRSSSySSSSs...",
+"..RRSSSSSSSS....",
+"..RRRddyddddR...",
+"..RRRSSSSSSSR...",
+"...RRSSSSSSR....",
+"...SSS....SSS...",
+"...SSS....SSS...",
+"..SSS......SSS..",
+"..bbb......bbb..",
+".bbbb......bbbb.",
+"................"]],
+mage:[[
+".......UU.......",
+"......UUU.......",
+".....UUUU.......",
+".....UUUUU....yy",
+"....UUyUUU....yy",
+"...UUUUUUUU...d.",
+".UUUUUUUUUUUU.d.",
+"....hssssh....d.",
+"....skssks....d.",
+"....ssssss....d.",
+".....ssss.....d.",
+"....UUUUUU...sd.",
+"...UUUUyUUUUsd..",
+"...UUUUyUUU..d..",
+"...UUUUyUUU..d..",
+"...UddddddU..d..",
+"..UUUUUUUUUU.d..",
+"..UUUUUUUUUU.d..",
+".UUUUUUUUUUUU.d.",
+".UUUUUUUUUUUU...",
+"..bb......bb....",
+"................"],[
+".......UU.......",
+"......UUU.......",
+".....UUUU.......",
+".....UUUUU....yy",
+"....UUyUUU....yy",
+"...UUUUUUUU...d.",
+".UUUUUUUUUUUU.d.",
+"....hssssh....d.",
+"....skssks....d.",
+"....ssssss....d.",
+".....ssss.....d.",
+"....UUUUUU...sd.",
+"...UUUUyUUUUsd..",
+"...UUUUyUUU..d..",
+"...UUUUyUUU..d..",
+"...UddddddU..d..",
+"..UUUUUUUUUU.d..",
+"..UUUUUUUUUU.d..",
+".UUUUUUUUUUUU.d.",
+".UUUUUUUUUUUU...",
+"...bb....bb.....",
+"................"]],
+slime:{m:1,r:[
+"..........",
+"......GGGG",
+"....GGGGGG",
+"...GGGGGGG",
+"..GGGGGGGG",
+"..GGGGGGGG",
+".GGGGGGGGG",
+".GGGGkkGGG",
+".GGGGkkGGG",
+"GGGGGGGGGG",
+"GGGGGGGGkk",
+"GGGGGGGGGG",
+".GGGGGGGGG",
+"..HHHHHHHH"]},
+bat:{m:1,r:[
+"............",
+"P...........",
+"PP........P.",
+"PPP.......PP",
+"PPPP.....PPP",
+"PPPPP...PPPP",
+"PPPPPPPPPPyP",
+".PPPPPPPPPPP",
+"..P.PPPPPPPw",
+"......PPPPPP",
+".......PPPP.",
+"............"]},
+wolf:{r:[
+"..........................",
+"...................g......",
+"..................gg.g....",
+"..................ggggg...",
+".................ggggggg..",
+"........gggggggggggggrggg.",
+"......gggggggggggggggggggg",
+"....gggggggggggggggggwkwk.",
+"..ggggggggggggggggggg.....",
+".gg.gggggggggggggggg......",
+"g...ggggggggggggggg.......",
+"....gggggLLLLLLgggg.......",
+"....ggg.........ggg.......",
+"....gg..........gg........",
+"...ggg.........ggg........",
+"...gg..........gg.........",
+"..kkk.........kkk.........",
+".........................."]},
+goblin:{m:1,r:[
+".........",
+".G.......",
+".GG......",
+"..GG..GGG",
+"...GGGGGG",
+"....GrGGG",
+"....GGGGG",
+"....GGkkk",
+".....GwGG",
+"......GGG",
+"....bbbbb",
+"...Gbbbbb",
+"..GGbbbbb",
+"..G.bbbbb",
+"..G.ddddd",
+"....bbbbb",
+".....GG..",
+".....GG..",
+"....bbb..",
+"........."]},
+skeleton:{m:1,r:[
+"........",
+"....wwww",
+"...wwwww",
+"..wwwwww",
+"..wkkwww",
+"..wkkwww",
+"...wwwwk",
+"...wkwkw",
+"....wwww",
+".....ww.",
+"...wwwww",
+"..w.kwkw",
+".w..wwww",
+".w..kwkw",
+".w..wwww",
+".w...www",
+"....wwww",
+"....w...",
+"....w...",
+"....w...",
+"...ww...",
+"..www...",
+"........"]},
+golem:{m:1,r:[
+"..............",
+".........EEEEE",
+"........EEEEEE",
+"........EEEEEE",
+"........ErrEEE",
+"........EEEEEE",
+"...EEEE.EEEEEE",
+"..EEEEEEEEEEEE",
+".EEEEEEEEEEEEE",
+".EEEEEEEEEmEEE",
+"EEEEE.EEEEEEEE",
+"EEEEE.EEEEEEEE",
+"EEEE..EEEEEEEE",
+"EEEE..EEEmEEEE",
+"EEEE..EEEEEEEE",
+"EEEE...EEEEEEE",
+".EE....EEEEEEE",
+".......EEEEEEE",
+"......EEEEEEEE",
+"......EEEE....",
+"......EEEE....",
+".....EEEEE....",
+".....EEEEEE...",
+".............."]},
+demon:{m:1,r:[
+"P...............",
+"PP..............",
+".PP.............",
+".PPP.......DDDDD",
+"..PPP....DDDDDDD",
+"...PPPDDDDDDDDDD",
+"........DDDDDDDD",
+"........DDyyDDDD",
+"........DDDDDDDD",
+".........DkwkwkD",
+"..........DDDDDD",
+"....RRRRRRRRDDDD",
+"..RRRRRRRRRRPPPP",
+".RRRRRRRRRRPPPPP",
+".RRRRRRRRRPPPyPP",
+"RRRRRRRRRRPPPPPP",
+"RRRRRRRRRPPPPPPP",
+"RRRRRRRRwPPPPPPP",
+"RRRRRRRRwPPPPPPP",
+"RRRRRRRR.PPPPPPP",
+"RRRRRRRR.PPPPPPP",
+"RRRRRRRR..PPPPPP",
+"RRRRRRRR..PPPPPP",
+"RRRRRRRR..PPP.PP",
+".RRRRRRR..PPP...",
+".RRRRRRR..PPP...",
+"..RRRRRR..DDD...",
+"...RRRRR.DDDD...",
+"................"]}
+};
+function hex2(c){return[parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)]}
+function mix(c,t,a){const[r,g1,b]=hex2(c);return`rgb(${Math.round(r+(t-r)*a)},${Math.round(g1+(t-g1)*a)},${Math.round(b+(t-b)*a)})`}
+function bake(rows,white){
+  const h=rows.length,w=rows[0].length,cv2=document.createElement('canvas');cv2.width=w+2;cv2.height=h+2;const c=cv2.getContext('2d');
+  const at=(x,y)=>(y<0||y>=h||x<0||x>=w)?'.':rows[y][x];
+  for(let y=-1;y<=h;y++)for(let x=-1;x<=w;x++){const ch=at(x,y);
+    if(ch==='.'){if([at(x-1,y),at(x+1,y),at(x,y-1),at(x,y+1)].some(n=>n!=='.')){c.fillStyle=white?'#fff':'#120c18';c.fillRect(x+1,y+1,1,1)}continue}
+    let col=PAL[ch];
+    if(white)col='#fff';
+    else if(!NOSHADE.includes(ch)){
+      if(at(x,y-1)!==ch||at(x-1,y)!==ch)col=mix(col,255,.32);
+      else if(at(x,y+1)!==ch||at(x+1,y)!==ch)col=mix(col,0,.32);}
+    c.fillStyle=col;c.fillRect(x+1,y+1,1,1)}
+  return cv2;
+}
+const SPR={};
+for(const[k,v]of Object.entries(SPRDEF)){
+  const frames=Array.isArray(v)?v:[v.m?v.r.map(r=>r+[...r].reverse().join('')):v.r];
+  SPR[k]=frames.map(f=>({n:bake(f,false),f:bake(f,true)}));
+}
+function drawSpr(name,x,y,{frame=0,flip=false,flash=false,sc=1}={}){
+  const fr=SPR[name][frame%SPR[name].length],im=flash?fr.f:fr.n,w=im.width*sc,h=im.height*sc;
+  x=Math.round(x);y=Math.round(y);
+  if(flip){g.save();g.translate(x+w,y);g.scale(-1,1);g.drawImage(im,0,0,w,h);g.restore()}else g.drawImage(im,x,y,w,h);
+}
+const sprH=(name,sc=1)=>SPR[name][0].n.height*sc,sprW=(name,sc=1)=>SPR[name][0].n.width*sc;
+
+/* ---------- 세계 ---------- */
+const AREAS=[
+ {n:'바람의 들판',sky:['#5aa0e8','#cfe8ff'],far:'#8eb0d8',mid:'#4c9a48',ground:'#5aa846',dirt:'#c8a46a',foes:['slime','bat','wolf']},
+ {n:'속삭이는 숲',sky:['#2c5a48','#8fc0a0'],far:'#3f7a5c',mid:'#245c34',ground:'#3f8a3a',dirt:'#8a6a40',foes:['wolf','goblin','bat']},
+ {n:'잊혀진 동굴',sky:['#141224','#3a3450'],far:'#2a2638',mid:'#4a4460',ground:'#5a5468',dirt:'#3a3448',foes:['skeleton','golem','bat']},
+ {n:'마왕성',sky:['#2a0818','#8a2030'],far:'#3a1020',mid:'#1a0810',ground:'#4a3040',dirt:'#2a1820',foes:['demon']}
+];
+const FOES={
+ slime:{n:'슬라임',hp:.8,atk:.7,def:.5,xp:.8,g:.8},bat:{n:'동굴박쥐',hp:.7,atk:1,def:.5,xp:.9,g:.9},
+ wolf:{n:'들늑대',hp:1,atk:1.1,def:1,xp:1,g:1},goblin:{n:'고블린',hp:1.1,atk:1,def:1,xp:1.1,g:1.4},
+ skeleton:{n:'해골병사',hp:1,atk:1.2,def:1,xp:1.1,g:1.1},golem:{n:'돌골렘',hp:1.6,atk:1.1,def:2,xp:1.5,g:1.3}
+};
+const CLS={
+ warrior:{n:'전사',hp:32,atk:7,def:3,ghp:10,gatk:3,gdef:2},
+ mage:{n:'마법사',hp:22,atk:9,def:1,ghp:6,gatk:4,gdef:1}
+};
+const MAXLV=10;
+const need=lv=>270*lv;
+const areaIdx=()=>s.lv>=MAXLV&&!s.cleared?3:s.lv<=3?0:s.lv<=6?1:2;
+
+/* ---------- 상태 ---------- */
+const KEY='nius_save_v1';
+let s=null;
+function fresh(name,cls){const c=CLS[cls];return{name,cls,lv:1,xp:0,hp:c.hp,bmhp:c.hp,batk:c.atk,bdef:c.def,eatk:0,edef:0,gold:20,pot:2,
+  kills:0,deaths:0,playMs:0,lastEv:0,cleared:false,clearMs:0,log:[]}}
+const mhp=()=>s.bmhp,atk=()=>s.batk+s.eatk,def=()=>s.bdef+s.edef;
+function save(){try{localStorage.setItem(KEY,JSON.stringify(s))}catch(e){}}
+function load(){try{const v=JSON.parse(localStorage.getItem(KEY));if(v&&v.cls)return v}catch(e){}return null}
+
+/* ---------- 기록창 ---------- */
+function log(t){s.log.push(t);if(s.log.length>5)s.log.shift();renderLog()}
+function renderLog(){const L=$('log');L.textContent='';for(const t of s.log){const d=document.createElement('div');d.textContent=t;L.appendChild(d)}}
+
+/* ---------- 진행 ---------- */
+let phase='idle',pt=0,scroll=0,foe=null,bt=null,ev=null;
+const pops=[];let heroFx=0,foeFx=0,lunge=0;
+const rnd=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+
+function startWalk(){phase='walk';pt=rnd(30,45)*100;if(s)s.hp=Math.min(mhp(),s.hp+Math.round(mhp()*.12))}
+function startBattle(){
+  const ai=areaIdx(),A=AREAS[ai];
+  if(ai===3){foe={k:'demon',n:'마왕 그림자',hp:220,mhp:220,atk:24,def:6,xp:0,gold:300,boss:true};log('마왕성 깊은 곳… 마왕 그림자가 모습을 드러냈다!')}
+  else{const k=pick(A.foes),m=FOES[k],L=s.lv;
+    foe={k,n:m.n,hp:Math.round((10+6*L)*m.hp),atk:(3+1.8*L)*m.atk,def:Math.round(L*.5*m.def),xp:Math.round(5*L*m.xp),gold:Math.round((3+2*L)*m.g)};
+    foe.mhp=foe.hp;log(foe.n+'이(가) 나타났다!')}
+  bt={turn:'hero',n:0,healed:false};phase='battle';pt=900;
+}
+function pop(x,y,txt,col){pops.push({x,y,txt,col,t:900})}
+function heroTurn(){
+  bt.n++;
+  if(s.hp<mhp()*.35&&s.pot>0){s.pot--;const h=Math.round(mhp()*.45);s.hp=Math.min(mhp(),s.hp+h);log('회복약을 마셨다. HP +'+h);pop(140,52,'+'+h,'#5ee07a');return}
+  if(s.cls==='mage'&&!bt.healed&&s.hp<mhp()*.4){bt.healed=true;const h=Math.round(mhp()*.5);s.hp=Math.min(mhp(),s.hp+h);log('힐! HP +'+h);pop(140,52,'+'+h,'#5ee07a');return}
+  let mult=1,name='공격';
+  if(s.cls==='warrior'&&bt.n%3===0){mult=1.8;name='강타'}
+  if(s.cls==='mage'&&bt.n%2===0){mult=2.2;name='파이어볼'}
+  const crit=Math.random()<.1;if(crit)mult*=1.5;
+  const d=Math.max(1,Math.round(atk()*mult-foe.def+rnd(-1,2)));
+  foe.hp-=d;foeFx=300;lunge=200;
+  pop(38,40,(crit?'치명! ':'')+d,name==='파이어볼'?'#f08a30':'#fff');
+  if(name!=='공격'||crit)log(name+(crit?' (치명타)':'')+'! '+foe.n+'에게 '+d+' 피해');
+}
+function foeTurn(){
+  const d=Math.max(1,Math.round(foe.atk-def()*.6+rnd(-1,2)));
+  s.hp-=d;heroFx=300;pop(140,52,''+d,'#f05a5a');
+}
+function battleStep(){
+  if(bt.turn==='hero'){heroTurn();bt.turn='foe'}else{foeTurn();bt.turn='hero'}
+  if(foe.hp<=0)return win();
+  if(s.hp<=0)return lose();
+}
+function win(){
+  s.kills++;s.gold+=foe.gold;
+  if(foe.boss){log('마왕 그림자를 쓰러뜨렸다! 세계에 빛이 돌아온다.');s.cleared=true;s.clearMs=s.playMs;phase='reward';pt=1500;foe.dead=true;save();setTimeout(showEnd,1600);return}
+  gainXp(foe.xp,foe.n+' 처치! EXP +'+foe.xp+' · '+foe.gold+'G');
+  foe.dead=true;phase='reward';pt=1200;save();
+}
+function gainXp(x,msg){
+  s.xp+=x;if(msg)log(msg);
+  while(s.lv<MAXLV&&s.xp>=need(s.lv)){s.xp-=need(s.lv);s.lv++;const c=CLS[s.cls];s.bmhp+=c.ghp;s.batk+=c.gatk;s.bdef+=c.gdef;s.hp=mhp();
+    log('레벨 업! Lv'+s.lv+' — HP·공격·방어가 올랐다.');pop(120,30,'LEVEL UP','#f8d040');
+    if(s.lv===4)log('들판을 지나 속삭이는 숲으로 들어섰다.');
+    if(s.lv===7)log('숲 끝자락, 잊혀진 동굴의 입구가 보인다.');
+    if(s.lv===MAXLV)log('힘이 차올랐다. 이제 마왕성으로 향한다!')}
+  if(s.lv>=MAXLV)s.xp=Math.min(s.xp,need(MAXLV));
+}
+function lose(){
+  s.deaths++;const lost=Math.floor(s.gold*.3);s.gold-=lost;
+  log('쓰러졌다… 마을에서 눈을 떴다. ('+lost+'G 분실)');phase='dead';pt=4000;foe=null;save();
+}
+
+/* ---------- 선택지 이벤트 ---------- */
+const EVENTS=[
+ {t:'수상한 상자',d:'길가에 낡은 보물상자가 놓여 있다. 자물쇠는 녹슬어 있다.',c:[
+  {l:'열어본다',f:()=>Math.random()<.6?(g2(30*s.lv),'상자 안에 금화가 가득했다! +'+30*s.lv+'G'):(hurt(.25),'함정이었다! 독침에 찔려 HP가 줄었다.')},
+  {l:'그냥 지나간다',f:()=>'괜한 위험은 피하기로 했다.'}]},
+ {t:'다친 여행자',d:'다리를 다친 여행자가 길에 주저앉아 있다.',c:[
+  {l:'회복약을 나눠준다',need:()=>s.pot>0,sub:'회복약 1개',f:()=>{s.pot--;gainXp(20*s.lv);return '여행자가 고마워하며 여행의 지혜를 알려주었다. EXP +'+20*s.lv}},
+  {l:'부축해 마을까지 데려다준다',f:()=>{gainXp(8*s.lv);g2(10*s.lv);return '시간은 걸렸지만 사례금을 받았다. EXP +'+8*s.lv+' · +'+10*s.lv+'G'}},
+  {l:'못 본 척한다',f:()=>'발걸음이 조금 무거워졌다.'}]},
+ {t:'떠돌이 상인',d:'"좋은 물건 있습니다, 모험가 양반!"',c:[
+  {l:'회복약 2개 사기',cost:()=>30,f:()=>{s.pot+=2;return '회복약을 2개 샀다.'}},
+  {l:'강철 장비 사기',cost:()=>40*s.lv,sub:'공격 +2 · 방어 +1',f:()=>{s.eatk+=2;s.edef+=1;return '번쩍이는 강철 장비를 갖췄다! 공격 +2, 방어 +1'}},
+  {l:'구경만 한다',f:()=>'"다음에 또 봅시다!"'}]},
+ {t:'신비한 샘',d:'푸른빛이 감도는 샘물이 솟아난다.',c:[
+  {l:'마신다',f:()=>Math.random()<.7?(s.hp=mhp(),'온몸에 힘이 넘친다! HP가 가득 찼다.'):(hurt(.3),'물이 상해 있었다… 배가 아프다.')},
+  {l:'수통에 담아둔다',f:()=>Math.random()<.5?(s.pot++,'잘 담아두었다. 회복약 +1'):'담는 사이 빛이 사라졌다.'}]},
+ {t:'갈림길',d:'왼쪽은 험한 지름길, 오른쪽은 안전한 큰길이다.',c:[
+  {l:'지름길로 간다',f:()=>{hurt(.15);gainXp(15*s.lv);return '가시덤불에 긁혔지만 많은 것을 배웠다. EXP +'+15*s.lv}},
+  {l:'큰길로 간다',f:()=>{g2(8*s.lv);return '길에서 떨어진 동전을 주웠다. +'+8*s.lv+'G'}}]},
+ {t:'수련장의 노인',d:'"젊은이, 내 수련을 받아보겠나?"',c:[
+  {l:'혹독한 수련을 받는다',f:()=>{hurt(.4);s.batk+=1;return '죽을 만큼 힘들었다. 공격 +1'}},
+  {l:'이야기만 듣는다',f:()=>{gainXp(10*s.lv);return '옛 전쟁 이야기에서 교훈을 얻었다. EXP +'+10*s.lv}}]},
+ {t:'술집의 도박꾼',d:'"동전 던지기 한 판 어때? 이기면 두 배!"',c:[
+  {l:'가진 돈의 절반을 건다',need:()=>s.gold>=10,f:()=>{const b=Math.floor(s.gold/2);if(Math.random()<.5){s.gold+=b;return '이겼다! +'+b+'G'}s.gold-=b;return '졌다… -'+b+'G'}},
+  {l:'거절한다',f:()=>'"쳇, 겁쟁이."'}]},
+ {t:'버려진 무기',d:'바위 틈에 무기 하나가 꽂혀 있다.',c:[
+  {l:'뽑아본다',f:()=>Math.random()<.65?(s.eatk+=2,(s.cls==='mage'?'오래된 지팡이였다!':'오래된 검이었다!')+' 공격 +2'):(hurt(.2),'무기가 산산이 부서지며 파편이 튀었다.')},
+  {l:'두고 간다',f:()=>'누군가의 무덤일지도 모른다.'}]},
+ {t:'길가의 사원',d:'작은 사원에서 은은한 종소리가 들린다.',c:[
+  {l:'헌금하고 기도한다',cost:()=>15*s.lv,sub:'방어 +1',f:()=>{s.bdef+=1;return '몸이 단단해지는 느낌이 든다. 방어 +1'}},
+  {l:'잠시 쉬어간다',f:()=>{s.hp=Math.min(mhp(),s.hp+Math.round(mhp()*.3));return '조용히 쉬었다. HP 회복'}}]},
+ {t:'길 잃은 고양이',d:'작은 고양이가 졸졸 따라온다.',c:[
+  {l:'먹을 것을 나눠준다',f:()=>{g2(5*s.lv);gainXp(5*s.lv);return '고양이가 반짝이는 동전을 물어다 주었다. +'+5*s.lv+'G'}},
+  {l:'쓰다듬고 보내준다',f:()=>{s.hp=Math.min(mhp(),s.hp+5);return '마음이 조금 따뜻해졌다.'}}]}
+];
+function g2(n){s.gold+=n}
+function hurt(r){s.hp=Math.max(1,s.hp-Math.round(mhp()*r))}
+function canPick(c){if(c.need&&!c.need())return false;if(c.cost&&s.gold<c.cost())return false;return true}
+function startEvent(){
+  ev={e:pick(EVENTS),t:30000};phase='event';s.lastEv=s.playMs;
+  $('evTitle').textContent=ev.e.t;$('evText').textContent=ev.e.d;
+  const box=$('evChoices');box.textContent='';
+  ev.e.c.forEach((c,i)=>{const b=document.createElement('button');b.textContent=c.l;
+    const subs=[];if(c.cost)subs.push(c.cost()+'G');if(c.sub)subs.push(c.sub);
+    if(subs.length){const sp=document.createElement('span');sp.className='sub';sp.textContent=subs.join(' · ');b.appendChild(sp)}
+    b.disabled=!canPick(c);b.onclick=()=>choose(i,false);box.appendChild(b)});
+  $('evOv').hidden=false;
+  const first=box.querySelector('button:not(:disabled)');if(first)first.focus({preventScroll:true});
+}
+function choose(i,auto){
+  const c=ev.e.c[i];if(!canPick(c))return;
+  if(c.cost)s.gold-=c.cost();
+  const msg=c.f();log('['+ev.e.t+'] '+(auto?'(자동) ':'')+msg);
+  $('evOv').hidden=true;ev=null;save();startWalk();
+}
+
+/* ---------- 메인 루프 (100ms 고정 스텝, 탭이 가려져도 진행) ---------- */
+function step(dt){
+  if(phase==='idle'||phase==='ending')return;
+  if(phase!=='event')s.playMs+=dt;
+  if(phase==='walk'){scroll+=dt*.035;pt-=dt;if(pt<=0)startBattle()}
+  else if(phase==='battle'){pt-=dt;if(pt<=0){battleStep();pt=700}}
+  else if(phase==='reward'){pt-=dt;if(pt<=0){foe=null;if(s.cleared&&!$('endOv').hidden)return;
+    if(s.playMs-s.lastEv>90000&&Math.random()<.4&&!(s.lv>=MAXLV&&!s.cleared))startEvent();else startWalk()}}
+  else if(phase==='dead'){pt-=dt;if(pt<=0){s.hp=mhp();log('다시 길을 나선다.');startWalk()}}
+  else if(phase==='event'){ev.t-=dt;$('evTimer').textContent=Math.ceil(ev.t/1000)+'초 뒤 자동으로 고릅니다';
+    if(ev.t<=0){const ok=ev.e.c.map((c,i)=>i).filter(i=>canPick(ev.e.c[i]));choose(pick(ok),true)}}
+}
+let last=performance.now(),acc=0;
+setInterval(()=>{const now=performance.now();acc+=Math.min(now-last,600000);last=now;let n=0;while(acc>=100&&n<6000){step(100);acc-=100;n++}ui()},100);
+
+/* ---------- 그리기 ---------- */
+function bg(A,off){
+  const gr=g.createLinearGradient(0,0,0,GROUND);gr.addColorStop(0,A.sky[0]);gr.addColorStop(1,A.sky[1]);g.fillStyle=gr;g.fillRect(0,0,W,GROUND);
+  g.fillStyle=A.far;for(let x=0;x<W;x+=2){const X=x+off*.15;const h=22+Math.sin(X*.035)*10+Math.sin(X*.011)*12;g.fillRect(x,GROUND-26-h,2,h+26)}
+  g.fillStyle=A.mid;for(let x=0;x<W;x+=2){const X=x+off*.45;const h=10+Math.abs(Math.sin(X*.09))*14*(Math.sin(X*.021)>0?1:.4);g.fillRect(x,GROUND-h,2,h)}
+  g.fillStyle=A.ground;g.fillRect(0,GROUND,W,H-GROUND);
+  g.fillStyle=A.dirt;g.fillRect(0,GROUND+10,W,14);
+  g.fillStyle='#0003';for(let x=-((off)%16);x<W;x+=16){g.fillRect(x,GROUND+4,6,2);g.fillRect(x+9,GROUND+28,5,2)}
+}
+let lt=performance.now();
+function draw(now){
+  const dt=now-lt;lt=now;
+  if(!s){requestAnimationFrame(draw);return}
+  const ai=phase==='dead'?0:areaIdx(),A=AREAS[ai];
+  bg(A,scroll);
+  const step2=Math.floor(now/220)%2;
+  if(phase==='walk'||phase==='event'){
+    drawSpr(s.cls,56,GROUND-sprH(s.cls)+2-(phase==='walk'?step2:0),{frame:phase==='walk'?step2:0});
+  }else if(foe||phase==='reward'){
+    const hx=138-(lunge>0?8:0);
+    drawSpr(s.cls,hx,GROUND-sprH(s.cls)+2,{flip:true,flash:heroFx>0&&Math.floor(now/60)%2===0});
+    if(foe&&!foe.dead){const sc=foe.boss?2:1,fh=sprH(foe.k,sc),fw=sprW(foe.k,sc);
+      const shake=foeFx>0?(Math.floor(now/40)%2?2:-2):0,idle=Math.floor(now/400)%2;
+      const fy=foe.k==='bat'?GROUND-fh-18+idle*3:GROUND-fh+2-(foe.k==='slime'?0:idle);
+      drawSpr(foe.k,48-fw/2+shake,fy,{sc,flash:foeFx>0&&Math.floor(now/60)%2===0});
+      const bw=44;g.fillStyle='#000a';g.fillRect(8,30,bw+2,5);g.fillStyle='#e03030';g.fillRect(9,31,bw*Math.max(0,foe.hp)/foe.mhp,3);
+      g.font='8px DotGothic16, monospace';g.fillStyle='#000';g.fillText(foe.n,9,27);g.fillStyle='#fff';g.fillText(foe.n,8,26)}
+  }
+  if(phase==='dead'){g.fillStyle='#000a';g.fillRect(0,0,W,H);g.fillStyle='#fff';g.font='10px DotGothic16, monospace';g.fillText('마을로 돌아가는 중…',54,60)}
+  heroFx=Math.max(0,heroFx-dt);foeFx=Math.max(0,foeFx-dt);lunge=Math.max(0,lunge-dt);
+  g.font='10px DotGothic16, monospace';
+  for(let i=pops.length-1;i>=0;i--){const p=pops[i];p.t-=dt;if(p.t<=0){pops.splice(i,1);continue}
+    const y=p.y-(900-p.t)*.02;g.fillStyle='#000';g.fillText(p.txt,p.x+1,y+1);g.fillStyle=p.col;g.fillText(p.txt,p.x,y)}
+  requestAnimationFrame(draw);
+
+}
+
+/* ---------- 상태창 ---------- */
+const fmt=ms=>{const m=Math.floor(ms/60000),sec=Math.floor(ms/1000)%60;return m+':'+String(sec).padStart(2,'0')};
+function ui(){
+  if(!s)return;
+  $('sName').textContent=s.name;$('sCls').textContent=CLS[s.cls].n;$('sLv').textContent='Lv '+s.lv;
+  $('sHp').textContent=Math.max(0,s.hp)+' / '+mhp();
+  const r=Math.max(0,s.hp)/mhp();const hi=$('hpg').firstChild;hi.style.width=r*100+'%';hi.style.background=r<.3?'var(--hp-low)':'var(--hp)';
+  $('sXp').textContent=s.lv>=MAXLV?'MAX':s.xp+' / '+need(s.lv);$('xpg').firstChild.style.width=(s.lv>=MAXLV?100:s.xp/need(s.lv)*100)+'%';
+  $('sAtk').textContent=atk();$('sDef').textContent=def();$('sGold').textContent=s.gold+'G';$('sPot').textContent=s.pot+'개';
+  $('area').textContent=AREAS[areaIdx()].n;$('clock').textContent='⏱ '+fmt(s.playMs);
+}
+
+/* ---------- 시작·엔딩 ---------- */
+let chosen='warrior';
+function setCls(c){chosen=c;$('pickW').setAttribute('aria-pressed',c==='warrior');$('pickM').setAttribute('aria-pressed',c==='mage')}
+$('pickW').onclick=()=>setCls('warrior');$('pickM').onclick=()=>setCls('mage');
+$('startBtn').onclick=()=>{const n=($('nameIn').value.trim()||'용사').slice(0,8);s=fresh(n,chosen);$('startOv').hidden=true;
+  log(n+'의 모험이 시작되었다.');log('마왕을 쓰러뜨리려면 Lv'+MAXLV+'까지 강해져야 한다.');save();ui();startWalk()};
+function showEnd(){phase='ending';$('endText').innerHTML='';const p=$('endText');
+  [s.name+'('+CLS[s.cls].n+')은(는) 마왕 그림자를 물리쳤다.','클리어 시간 '+fmt(s.clearMs),'처치한 몬스터 '+s.kills+'마리 · 쓰러진 횟수 '+s.deaths+'번']
+  .forEach(t=>{const d=document.createElement('div');d.textContent=t;p.appendChild(d)});$('endOv').hidden=false;$('contBtn').focus()}
+$('contBtn').onclick=()=>{$('endOv').hidden=true;log('평화가 찾아왔지만, 모험은 계속된다.');startWalk()};
+$('newBtn').onclick=()=>{try{localStorage.removeItem(KEY)}catch(e){}location.reload()};
+let resetArm=0;
+$('reset').onclick=()=>{if(Date.now()-resetArm<3000){try{localStorage.removeItem(KEY)}catch(e){}location.reload()}else{resetArm=Date.now();$('reset').textContent='한 번 더 누르면 초기화';setTimeout(()=>$('reset').textContent='처음부터',3000)}};
+
+s=load();
+if(s){renderLog();log('다시 돌아왔다. 모험을 이어간다.');if(s.cleared&&s.lv>=MAXLV){}startWalk();ui()}else{$('startOv').hidden=false}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
