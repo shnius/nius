@@ -23,7 +23,7 @@ body{background:var(--bg);color:var(--ink);font-family:var(--font);
 .win{background:linear-gradient(180deg,var(--win-top),var(--win-bot));border:3px solid var(--edge);border-radius:6px;
   box-shadow:0 0 0 2px #000,inset 0 0 0 1px #0006;padding:8px 12px;text-shadow:1px 1px 0 #000}
 #screen{position:relative;border:3px solid var(--edge);border-radius:6px;box-shadow:0 0 0 2px #000;overflow:hidden;background:#000}
-canvas{display:block;width:100%;aspect-ratio:240/144;image-rendering:pixelated;max-width:100%}
+canvas{display:block;width:100%;aspect-ratio:192/116;image-rendering:pixelated;max-width:100%}
 #area{position:absolute;left:8px;top:6px;font-size:13px;text-shadow:1px 1px 0 #000,-1px 0 0 #000}
 #clock{position:absolute;right:8px;top:6px;font-size:13px;text-shadow:1px 1px 0 #000;font-variant-numeric:tabular-nums}
 #status{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:15px}
@@ -64,7 +64,7 @@ input{font-family:var(--font);font-size:17px;width:100%;padding:6px 8px;backgrou
 <body>
 <div id="app">
   <div id="screen">
-    <canvas id="c" width="240" height="144"></canvas>
+    <canvas id="c" width="192" height="116"></canvas>
     <div id="area"></div><div id="clock"></div>
   </div>
   <div class="win" id="status">
@@ -115,27 +115,281 @@ input{font-family:var(--font);font-size:17px;width:100%;padding:6px 8px;backgrou
 "use strict";
 const $=id=>document.getElementById(id);
 const cv=$('c'),g=cv.getContext('2d');g.imageSmoothingEnabled=false;
-const W=240,H=144,GROUND=112;
+const W=192,H=116,GROUND=90;
 
-/* ---------- 도트 ---------- */
-const PAL={k:'#1a1420',S:'#c8d0e0',s:'#f0c098',R:'#c83a3a',b:'#6a4528',w:'#ffffff',U:'#3a5ad8',y:'#f8d040',d:'#8a5a30',
-  g:'#8a8f9a',G:'#4fae5a',H:'#2f7a3c',e:'#6b6f88',r:'#e03030',p:'#8a48c8',o:'#f08a30'};
-const SPR={
-warrior:["...kkkkk....","..kSSSSSk...","..kSSSSSk...","..kskksSk...","..ksssssk..w","..kkSSSkk.kw",".kRkSSSkRkw.",".kRSSSSSkk..",".kRkSSSkR...","..kkbbbkk...","..kb.kbk....","..kk..kk...."],
-mage:[".....kk.....","....kUUk....","...kUUUUk...","..kUUyUUUk.y",".kkkkkkkkkkd","...kssssk.d.","...kskskk.d.","..kUUUUUUkd.","..kUUyUUUkd.","..kUUUUUUkd.","..kUUUUUUk..","...kk..kk..."],
-slime:["............","............","....kkkk....","...kGGGGk...","..kGGwGwGk..","..kGGkGkGk..","..kGGGGGGGk.",".kGGGGGGGGk.",".kGHHHHHHHk.","..kkkkkkkk..","............","............"],
-bat:["............","k..........k","kk...kk...kk","kpk.kppk.kpk","kppkpwpwkppk",".kppppppppk.","..kpprrppk..","...kppppk...","....kkkk....","............","............","............"],
-wolf:["............","............","k.k.........","kgkk........","kggggkkkkk..","kwkggggggggk",".kkggggggggk","...kgggggggk","...kgk.kgkgk","...kgk.kgk.k","...kk..kk...","............"],
-goblin:["............","..k.....k...",".kGk...kGk..",".kGGkkkGGk..","..kGrGGrGk..","..kGGGGGGk.d","...kGkkGk.dd","..kbbbbbbkd.",".kGkbbbbkGk.","...kbbbbk...","...kGk.kGk..","...kk..kk..."],
-skeleton:["...kkkkk....","..kwwwwwk...","..kwkwkwk...","..kwwwwwk...","...kwkwk....","..kkwwwkk...",".kw.kwk.wk..","...kwwwk....","...kwkwk....","...kw.wk....","..kw...wk...","..kk...kk..."],
-golem:["...kkkkkk...","..keeeeeek..","..kerkkrek..","..keeeeeek..",".kkeeeeeekk.","keekeeeekeek","keekeeeekeek","kk.keeeek.kk","...keeeek...","..keek.keek.","..keek.keek.","..kkk..kkk.."],
-demon:["k..........k","kpk......kpk",".kpkkkkkkpk.","..kppppppk..","..kpyppypk..","..kppppppk..",".kkprrrrpkk.","kppkpppppkpk","kpkppppppkpk","k.kppppppk.k","..kpk..kpk..","..kk....kk.."]
+/* ---------- 도트 (단색으로 그리고, 외곽선·명암은 코드가 자동으로 입힘) ---------- */
+const PAL={k:'#1a1420',w:'#f4f0e0',y:'#f8d040',r:'#e03030',S:'#b8c2d4',s:'#f0c098',h:'#6a4020',R:'#b8303c',
+  b:'#7a5030',d:'#4a3020',U:'#3456c8',G:'#3cb44a',H:'#23793a',P:'#7a44b8',D:'#4a2468',E:'#8a8478',m:'#5a8a3a',
+  g:'#8890a0',L:'#c8ccd4',o:'#f08a30'};
+const NOSHADE='kwyr';
+// m:true = 왼쪽 절반만 그리고 좌우대칭으로 완성
+const SPRDEF={
+warrior:[[
+"................",
+".....SSSSS......",
+"....SSSSSSS.....",
+"....SSyyyySS....",
+"....SSSSSSSS....",
+"....hSssssSS....",
+"....hsskskss....",
+"....hsssssss....",
+".....ssssss....w",
+"...RRSSSSSSR..w.",
+"..RRSSSSSSSSRw..",
+"..RRSSSySSSSsy..",
+"..RRSSSySSSSs...",
+"..RRSSSSSSSS....",
+"..RRRddyddddR...",
+"..RRRSSSSSSSR...",
+"...RRSSSSSSR....",
+"....SSS..SSS....",
+"....SSS..SSS....",
+"....SSS..SSS....",
+"....bbb..bbb....",
+"...bbbb..bbbb...",
+"................"],[
+"................",
+".....SSSSS......",
+"....SSSSSSS.....",
+"....SSyyyySS....",
+"....SSSSSSSS....",
+"....hSssssSS....",
+"....hsskskss....",
+"....hsssssss....",
+".....ssssss....w",
+"...RRSSSSSSR..w.",
+"..RRSSSSSSSSRw..",
+"..RRSSSySSSSsy..",
+"..RRSSSySSSSs...",
+"..RRSSSSSSSS....",
+"..RRRddyddddR...",
+"..RRRSSSSSSSR...",
+"...RRSSSSSSR....",
+"...SSS....SSS...",
+"...SSS....SSS...",
+"..SSS......SSS..",
+"..bbb......bbb..",
+".bbbb......bbbb.",
+"................"]],
+mage:[[
+".......UU.......",
+"......UUU.......",
+".....UUUU.......",
+".....UUUUU....yy",
+"....UUyUUU....yy",
+"...UUUUUUUU...d.",
+".UUUUUUUUUUUU.d.",
+"....hssssh....d.",
+"....skssks....d.",
+"....ssssss....d.",
+".....ssss.....d.",
+"....UUUUUU...sd.",
+"...UUUUyUUUUsd..",
+"...UUUUyUUU..d..",
+"...UUUUyUUU..d..",
+"...UddddddU..d..",
+"..UUUUUUUUUU.d..",
+"..UUUUUUUUUU.d..",
+".UUUUUUUUUUUU.d.",
+".UUUUUUUUUUUU...",
+"..bb......bb....",
+"................"],[
+".......UU.......",
+"......UUU.......",
+".....UUUU.......",
+".....UUUUU....yy",
+"....UUyUUU....yy",
+"...UUUUUUUU...d.",
+".UUUUUUUUUUUU.d.",
+"....hssssh....d.",
+"....skssks....d.",
+"....ssssss....d.",
+".....ssss.....d.",
+"....UUUUUU...sd.",
+"...UUUUyUUUUsd..",
+"...UUUUyUUU..d..",
+"...UUUUyUUU..d..",
+"...UddddddU..d..",
+"..UUUUUUUUUU.d..",
+"..UUUUUUUUUU.d..",
+".UUUUUUUUUUUU.d.",
+".UUUUUUUUUUUU...",
+"...bb....bb.....",
+"................"]],
+slime:{m:1,r:[
+"..........",
+"......GGGG",
+"....GGGGGG",
+"...GGGGGGG",
+"..GGGGGGGG",
+"..GGGGGGGG",
+".GGGGGGGGG",
+".GGGGkkGGG",
+".GGGGkkGGG",
+"GGGGGGGGGG",
+"GGGGGGGGkk",
+"GGGGGGGGGG",
+".GGGGGGGGG",
+"..HHHHHHHH"]},
+bat:{m:1,r:[
+"............",
+"P...........",
+"PP........P.",
+"PPP.......PP",
+"PPPP.....PPP",
+"PPPPP...PPPP",
+"PPPPPPPPPPyP",
+".PPPPPPPPPPP",
+"..P.PPPPPPPw",
+"......PPPPPP",
+".......PPPP.",
+"............"]},
+wolf:{r:[
+"..........................",
+"...................g......",
+"..................gg.g....",
+"..................ggggg...",
+".................ggggggg..",
+"........gggggggggggggrggg.",
+"......gggggggggggggggggggg",
+"....gggggggggggggggggwkwk.",
+"..ggggggggggggggggggg.....",
+".gg.gggggggggggggggg......",
+"g...ggggggggggggggg.......",
+"....gggggLLLLLLgggg.......",
+"....ggg.........ggg.......",
+"....gg..........gg........",
+"...ggg.........ggg........",
+"...gg..........gg.........",
+"..kkk.........kkk.........",
+".........................."]},
+goblin:{m:1,r:[
+".........",
+".G.......",
+".GG......",
+"..GG..GGG",
+"...GGGGGG",
+"....GrGGG",
+"....GGGGG",
+"....GGkkk",
+".....GwGG",
+"......GGG",
+"....bbbbb",
+"...Gbbbbb",
+"..GGbbbbb",
+"..G.bbbbb",
+"..G.ddddd",
+"....bbbbb",
+".....GG..",
+".....GG..",
+"....bbb..",
+"........."]},
+skeleton:{m:1,r:[
+"........",
+"....wwww",
+"...wwwww",
+"..wwwwww",
+"..wkkwww",
+"..wkkwww",
+"...wwwwk",
+"...wkwkw",
+"....wwww",
+".....ww.",
+"...wwwww",
+"..w.kwkw",
+".w..wwww",
+".w..kwkw",
+".w..wwww",
+".w...www",
+"....wwww",
+"....w...",
+"....w...",
+"....w...",
+"...ww...",
+"..www...",
+"........"]},
+golem:{m:1,r:[
+"..............",
+".........EEEEE",
+"........EEEEEE",
+"........EEEEEE",
+"........ErrEEE",
+"........EEEEEE",
+"...EEEE.EEEEEE",
+"..EEEEEEEEEEEE",
+".EEEEEEEEEEEEE",
+".EEEEEEEEEmEEE",
+"EEEEE.EEEEEEEE",
+"EEEEE.EEEEEEEE",
+"EEEE..EEEEEEEE",
+"EEEE..EEEmEEEE",
+"EEEE..EEEEEEEE",
+"EEEE...EEEEEEE",
+".EE....EEEEEEE",
+".......EEEEEEE",
+"......EEEEEEEE",
+"......EEEE....",
+"......EEEE....",
+".....EEEEE....",
+".....EEEEEE...",
+".............."]},
+demon:{m:1,r:[
+"P...............",
+"PP..............",
+".PP.............",
+".PPP.......DDDDD",
+"..PPP....DDDDDDD",
+"...PPPDDDDDDDDDD",
+"........DDDDDDDD",
+"........DDyyDDDD",
+"........DDDDDDDD",
+".........DkwkwkD",
+"..........DDDDDD",
+"....RRRRRRRRDDDD",
+"..RRRRRRRRRRPPPP",
+".RRRRRRRRRRPPPPP",
+".RRRRRRRRRPPPyPP",
+"RRRRRRRRRRPPPPPP",
+"RRRRRRRRRPPPPPPP",
+"RRRRRRRRwPPPPPPP",
+"RRRRRRRRwPPPPPPP",
+"RRRRRRRR.PPPPPPP",
+"RRRRRRRR.PPPPPPP",
+"RRRRRRRR..PPPPPP",
+"RRRRRRRR..PPPPPP",
+"RRRRRRRR..PPP.PP",
+".RRRRRRR..PPP...",
+".RRRRRRR..PPP...",
+"..RRRRRR..DDD...",
+"...RRRRR.DDDD...",
+"................"]}
 };
-function drawSpr(name,x,y,sc,{flip=false,flash=false,alpha=1}={}){
-  const sp=SPR[name];g.globalAlpha=alpha;
-  for(let j=0;j<12;j++)for(let i=0;i<12;i++){const c=sp[j][flip?11-i:i];if(c!=='.'){g.fillStyle=flash?'#fff':PAL[c];g.fillRect(Math.round(x+i*sc),Math.round(y+j*sc),sc,sc)}}
-  g.globalAlpha=1;
+function hex2(c){return[parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)]}
+function mix(c,t,a){const[r,g1,b]=hex2(c);return`rgb(${Math.round(r+(t-r)*a)},${Math.round(g1+(t-g1)*a)},${Math.round(b+(t-b)*a)})`}
+function bake(rows,white){
+  const h=rows.length,w=rows[0].length,cv2=document.createElement('canvas');cv2.width=w+2;cv2.height=h+2;const c=cv2.getContext('2d');
+  const at=(x,y)=>(y<0||y>=h||x<0||x>=w)?'.':rows[y][x];
+  for(let y=-1;y<=h;y++)for(let x=-1;x<=w;x++){const ch=at(x,y);
+    if(ch==='.'){if([at(x-1,y),at(x+1,y),at(x,y-1),at(x,y+1)].some(n=>n!=='.')){c.fillStyle=white?'#fff':'#120c18';c.fillRect(x+1,y+1,1,1)}continue}
+    let col=PAL[ch];
+    if(white)col='#fff';
+    else if(!NOSHADE.includes(ch)){
+      if(at(x,y-1)!==ch||at(x-1,y)!==ch)col=mix(col,255,.32);
+      else if(at(x,y+1)!==ch||at(x+1,y)!==ch)col=mix(col,0,.32);}
+    c.fillStyle=col;c.fillRect(x+1,y+1,1,1)}
+  return cv2;
 }
+const SPR={};
+for(const[k,v]of Object.entries(SPRDEF)){
+  const frames=Array.isArray(v)?v:[v.m?v.r.map(r=>r+[...r].reverse().join('')):v.r];
+  SPR[k]=frames.map(f=>({n:bake(f,false),f:bake(f,true)}));
+}
+function drawSpr(name,x,y,{frame=0,flip=false,flash=false,sc=1}={}){
+  const fr=SPR[name][frame%SPR[name].length],im=flash?fr.f:fr.n,w=im.width*sc,h=im.height*sc;
+  x=Math.round(x);y=Math.round(y);
+  if(flip){g.save();g.translate(x+w,y);g.scale(-1,1);g.drawImage(im,0,0,w,h);g.restore()}else g.drawImage(im,x,y,w,h);
+}
+const sprH=(name,sc=1)=>SPR[name][0].n.height*sc,sprW=(name,sc=1)=>SPR[name][0].n.width*sc;
 
 /* ---------- 세계 ---------- */
 const AREAS=[
@@ -188,20 +442,20 @@ function startBattle(){
 function pop(x,y,txt,col){pops.push({x,y,txt,col,t:900})}
 function heroTurn(){
   bt.n++;
-  if(s.hp<mhp()*.35&&s.pot>0){s.pot--;const h=Math.round(mhp()*.45);s.hp=Math.min(mhp(),s.hp+h);log('회복약을 마셨다. HP +'+h);pop(178,70,'+'+h,'#5ee07a');return}
-  if(s.cls==='mage'&&!bt.healed&&s.hp<mhp()*.4){bt.healed=true;const h=Math.round(mhp()*.5);s.hp=Math.min(mhp(),s.hp+h);log('힐! HP +'+h);pop(178,70,'+'+h,'#5ee07a');return}
+  if(s.hp<mhp()*.35&&s.pot>0){s.pot--;const h=Math.round(mhp()*.45);s.hp=Math.min(mhp(),s.hp+h);log('회복약을 마셨다. HP +'+h);pop(140,52,'+'+h,'#5ee07a');return}
+  if(s.cls==='mage'&&!bt.healed&&s.hp<mhp()*.4){bt.healed=true;const h=Math.round(mhp()*.5);s.hp=Math.min(mhp(),s.hp+h);log('힐! HP +'+h);pop(140,52,'+'+h,'#5ee07a');return}
   let mult=1,name='공격';
   if(s.cls==='warrior'&&bt.n%3===0){mult=1.8;name='강타'}
   if(s.cls==='mage'&&bt.n%2===0){mult=2.2;name='파이어볼'}
   const crit=Math.random()<.1;if(crit)mult*=1.5;
   const d=Math.max(1,Math.round(atk()*mult-foe.def+rnd(-1,2)));
   foe.hp-=d;foeFx=300;lunge=200;
-  pop(48,58,(crit?'치명! ':'')+d,name==='파이어볼'?'#f08a30':'#fff');
+  pop(38,40,(crit?'치명! ':'')+d,name==='파이어볼'?'#f08a30':'#fff');
   if(name!=='공격'||crit)log(name+(crit?' (치명타)':'')+'! '+foe.n+'에게 '+d+' 피해');
 }
 function foeTurn(){
   const d=Math.max(1,Math.round(foe.atk-def()*.6+rnd(-1,2)));
-  s.hp-=d;heroFx=300;pop(178,70,''+d,'#f05a5a');
+  s.hp-=d;heroFx=300;pop(140,52,''+d,'#f05a5a');
 }
 function battleStep(){
   if(bt.turn==='hero'){heroTurn();bt.turn='foe'}else{foeTurn();bt.turn='hero'}
@@ -217,7 +471,7 @@ function win(){
 function gainXp(x,msg){
   s.xp+=x;if(msg)log(msg);
   while(s.lv<MAXLV&&s.xp>=need(s.lv)){s.xp-=need(s.lv);s.lv++;const c=CLS[s.cls];s.bmhp+=c.ghp;s.batk+=c.gatk;s.bdef+=c.gdef;s.hp=mhp();
-    log('레벨 업! Lv'+s.lv+' — HP·공격·방어가 올랐다.');pop(170,40,'LEVEL UP','#f8d040');
+    log('레벨 업! Lv'+s.lv+' — HP·공격·방어가 올랐다.');pop(120,30,'LEVEL UP','#f8d040');
     if(s.lv===4)log('들판을 지나 속삭이는 숲으로 들어섰다.');
     if(s.lv===7)log('숲 끝자락, 잊혀진 동굴의 입구가 보인다.');
     if(s.lv===MAXLV)log('힘이 차올랐다. 이제 마왕성으로 향한다!')}
@@ -313,24 +567,27 @@ function draw(now){
   const dt=now-lt;lt=now;
   if(!s){requestAnimationFrame(draw);return}
   const ai=phase==='dead'?0:areaIdx(),A=AREAS[ai];
-  bg(A,phase==='walk'?scroll:scroll);
-  const bob=phase==='walk'?Math.floor(now/180)%2:0;
-  if(phase==='walk'||phase==='event'||phase==='dead'){
-    if(phase!=='dead')drawSpr(s.cls,70,GROUND-24-bob*1,2);
+  bg(A,scroll);
+  const step2=Math.floor(now/220)%2;
+  if(phase==='walk'||phase==='event'){
+    drawSpr(s.cls,56,GROUND-sprH(s.cls)+2-(phase==='walk'?step2:0),{frame:phase==='walk'?step2:0});
   }else if(foe||phase==='reward'){
-    const hx=176-(lunge>0?10:0);
-    drawSpr(s.cls,hx,GROUND-26,2,{flip:true,flash:heroFx>0&&Math.floor(now/60)%2===0});
-    if(foe&&!foe.dead){const sc=foe.boss?5:3,sz=12*sc;const shake=foeFx>0?(Math.floor(now/40)%2?2:-2):0;
-      drawSpr(foe.k,44-sz/2+20+shake,GROUND-sz+2,sc,{flash:foeFx>0&&Math.floor(now/60)%2===0});
-      const bw=50;g.fillStyle='#000a';g.fillRect(14,24,bw+2,6);g.fillStyle='#e03030';g.fillRect(15,25,bw*Math.max(0,foe.hp)/foe.mhp,4);
-      g.font='9px DotGothic16, monospace';g.fillStyle='#fff';g.fillText(foe.n,14,21)}
+    const hx=138-(lunge>0?8:0);
+    drawSpr(s.cls,hx,GROUND-sprH(s.cls)+2,{flip:true,flash:heroFx>0&&Math.floor(now/60)%2===0});
+    if(foe&&!foe.dead){const sc=foe.boss?2:1,fh=sprH(foe.k,sc),fw=sprW(foe.k,sc);
+      const shake=foeFx>0?(Math.floor(now/40)%2?2:-2):0,idle=Math.floor(now/400)%2;
+      const fy=foe.k==='bat'?GROUND-fh-18+idle*3:GROUND-fh+2-(foe.k==='slime'?0:idle);
+      drawSpr(foe.k,48-fw/2+shake,fy,{sc,flash:foeFx>0&&Math.floor(now/60)%2===0});
+      const bw=44;g.fillStyle='#000a';g.fillRect(8,30,bw+2,5);g.fillStyle='#e03030';g.fillRect(9,31,bw*Math.max(0,foe.hp)/foe.mhp,3);
+      g.font='8px DotGothic16, monospace';g.fillStyle='#000';g.fillText(foe.n,9,27);g.fillStyle='#fff';g.fillText(foe.n,8,26)}
   }
-  if(phase==='dead'){g.fillStyle='#000a';g.fillRect(0,0,W,H);g.fillStyle='#fff';g.font='12px DotGothic16, monospace';g.fillText('마을로 돌아가는 중…',72,76)}
+  if(phase==='dead'){g.fillStyle='#000a';g.fillRect(0,0,W,H);g.fillStyle='#fff';g.font='10px DotGothic16, monospace';g.fillText('마을로 돌아가는 중…',54,60)}
   heroFx=Math.max(0,heroFx-dt);foeFx=Math.max(0,foeFx-dt);lunge=Math.max(0,lunge-dt);
-  g.font='11px DotGothic16, monospace';
+  g.font='10px DotGothic16, monospace';
   for(let i=pops.length-1;i>=0;i--){const p=pops[i];p.t-=dt;if(p.t<=0){pops.splice(i,1);continue}
-    const y=p.y-(900-p.t)*.025;g.fillStyle='#000';g.fillText(p.txt,p.x+1,y+1);g.fillStyle=p.col;g.fillText(p.txt,p.x,y)}
+    const y=p.y-(900-p.t)*.02;g.fillStyle='#000';g.fillText(p.txt,p.x+1,y+1);g.fillStyle=p.col;g.fillText(p.txt,p.x,y)}
   requestAnimationFrame(draw);
+
 }
 
 /* ---------- 상태창 ---------- */
